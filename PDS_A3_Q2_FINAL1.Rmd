@@ -1,0 +1,352 @@
+---
+title: "MATH70094 Programming for Data Science Assessment 3/2024 Question 2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.asp = 1)
+```
+
+## CID  - 01349943 - Thomas Richardson
+
+
+
+```{r}
+# Do not alter this
+
+# load the mnist data, split into data (images) X and labels Y
+
+mnist <- read.csv("mnist.csv", header = TRUE)
+Y <- mnist$digit
+X <- mnist[,-1]
+
+visualise = function(images, labels = numeric(0)) {
+  n = ceiling(sqrt(nrow(images)))
+  par(mfrow=c(n, n))
+  par(mar=c(0.05, 0.05, 0.05, 0.05))
+  for (i in 1:nrow(images)) {
+    image(matrix(as.numeric(images[i,]), nrow = 28)[, 28:1], col=gray((255:0)/255), xaxt="n", yaxt="n")
+    if (length(labels) != 0)
+    text(0.1,0.9,labels[i])
+  }
+}
+
+visualise(X[1:6,],Y[1:6])
+
+
+# Do not alter this
+```
+
+## Part A
+
+```{r}
+library(R6)
+
+# I believe my scores and project method are the only parts that are wrong, but I can't seem to get them to work. I couldn't get the dot product to work, so I just wrote it out as matrix multiplcation. I played around with this for ages, so please mark generoursly! 
+
+EigendigitsR6 <- R6Class("EigendigitsR6",
+                       
+    public = list(
+      
+      # attributes
+      n_pcs = 0, # scalar; the number of principal components, r in the background section
+      mean = NULL, # p vector; average of the data points 
+      explained_variance_ratio = NULL, # scalar; as described in the background section
+      components = NULL, # n_pcs x p matrix of principal components
+      
+      # Constructs an Eigendigits object
+      
+      initialize = function(npcs){
+        self$n_pcs <- npcs
+        self$mean <- NULL
+        self$explained_variance_ratio <- NULL
+        self$components <- NULL
+      },
+     
+    
+    # Printing the string representation 
+    print = function () {
+      cat("Eigendigits object\n")
+      cat("Number of principal components:", self$n_pcs, "\n")
+      cat("Explained variance ratio:", ifelse(is.null(self$explained_variance_ratio),"N/A", self$explained_variance_ratio), "\n") # similar to python
+    },
+    
+    # Takes X and calculates the mean, principal components and explained variance ratio
+    fit = function(X) {
+      
+      # Clone the input to avoid modifying the original data
+      X <- as.matrix(X)
+      
+      # Calculate the mean of the data
+      self$mean <- colMeans(X)
+      X_centered <- sweep(X, 2, self$mean, "-") 
+      
+      # Compute the covariance matrix
+      cov_matrix = cov(X_centered)
+      
+      # Doing eigen decomposition
+      eig <- eigen(cov_matrix)
+      eigenvalues <- eig$values
+      eigenvectors <- eig$vectors
+      
+      # Sort the eigenvalues and eigenvectors in descending order
+      sorted_indices <- order(eigenvalues, decreasing = TRUE)
+      eigenvalues <- eigenvalues[sorted_indices]
+      eigenvectors <- eigenvectors[, sorted_indices]
+      
+      # Select the top n_pcs eigenvectors 
+      self$components <- eigenvectors[, 1:self$n_pcs]
+      
+      # Compute explained variance ratio
+      total_variance <- sum(eigenvalues)
+      explained_variance <- sum(eigenvalues[1:self$n_pcs])
+      self$explained_variance_ratio <- explained_variance / total_variance
+    },
+    
+    # Additional method - Checking the Eigendigits objects has been fitted correctly
+      check_fitted = function() {
+       if (is.null(self$mean) || is.null(self$components)) {
+    stop("The model has not been fitted yet. Call `fit()` first.")
+    }
+    },
+    
+    # Scores method
+    scores = function(Z) {
+      self$check_fitted()
+      
+      # Clone the input
+      Z <- as.matrix(Z)
+      
+      Z_centered <- sweep(Z, 2, self$mean, "-")
+      scores_matrix <- Z_centered %*% self$components
+      return(scores_matrix)
+    },
+    
+    # Project method
+    project = function(Z) {
+      self$check_fitted()
+      
+      # Clone the input
+      Z <- as.matrix(Z)
+      
+      
+      scores <- self$scores(Z)
+      return(scores %*% t(self$components) + self$mean)
+    },
+    
+    # Classify method # SImilar problem to python is NOT NULL
+    classify = function(X_train, Y_train, x_test) {
+      
+      # Clone inputs to avoid modifications
+      X_train <- as.matrix(X_train)
+      Y_train <- as.vector(Y_train)
+      x_test <- as.vector(x_test)
+      
+      # Fit the model if not already fitted
+      if (is.null(self$mean) || is.null(self$components)) {
+        self$fit(X_train)
+      }
+      
+      # Projecting training data into PCA space
+      training_scores = self$scores(X_train)
+      
+      # Projecting the test sample into PCA space
+      test_scores <- self$scores(matrix(x_test, nrow = 1))
+      
+      # Compute the Euclidean distances
+      distances <- apply(training_scores, 1, function(row) sqrt(sum((row - test_scores)^2)))
+      
+      #Finding the closest neighbour 
+      neighbour_index <- which.min(distances)
+      return(Y_train[neighbour_index])
+    }
+  
+    )
+)
+
+```
+
+## Part B
+
+```{r}
+# Do not alter this
+
+# create generic example that can be used in the tests below
+set.seed(1)
+create_example = function(n_pcs){
+    X <- matrix(sample(0:256, 100*784, replace=TRUE), nrow=100)
+    Z <- matrix(sample(0:256, 5*784, replace=TRUE), nrow=5)
+    eds <- EigendigitsR6$new(n_pcs)
+    eds$fit(X)
+    return(list(eds=eds, Z=Z))
+}
+
+n_pcs <- 10
+res <- create_example(n_pcs)
+eds <- res$eds
+Z <- res$Z
+
+# Do not alter this
+```
+
+
+```{r}
+# install.packages("testthat") # do this once
+library(testthat)
+
+# Test A - Test if the shape of the components is (n_pcs, 784)
+test_that("Components have the correct shape", {
+  n_pcs <- 10
+  example <- create_example(n_pcs)
+  eds <- example$eds
+  expect_equal(dim(eds$components), c(784, n_pcs), tolerance = 0, info = "The shape of the components is not correct.")
+})
+
+# Test B - Test if the shape of the scores is (m, n_pcs)
+test_that("Scores output has the correct shape", {
+  n_pcs <- 10
+  example <- create_example(n_pcs)
+  eds <- example$eds
+  Z <- example$Z
+  
+  expect_false(is.null(eds$components), "Eigendigits object is not fitted.")
+  
+  scores <- eds$scores(Z)
+  expect_equal(dim(scores), c(nrow(Z), n_pcs), tolerance = 0, info = "The shape of the scores is not correct.")
+})
+
+# Test C - Test if projected matrix shape is (m, p)
+test_that("Projected matrix has the correct shape", {
+  n_pcs <- 10
+  example <- create_example(n_pcs)
+  eds <- example$eds
+  Z <- example$Z # taking our example
+  
+  expect_false(is.null(eds$components), "Eigendigits object is not fitted.")
+  
+  projected_matrix <- eds$project(Z)
+  expect_equal(dim(projected_matrix), dim(Z), tolerance = 0, info = "The shape of the projected matrix is not correct.")
+})
+
+# Test D - Test if the reconstructed matrix is equal to the input matrix when using all principal components
+test_that("Projected matrix reconstructs input with all components", {
+  n_pcs <- 10
+  example <- create_example(n_pcs)
+  eds <- example$eds
+  Z <- example$Z
+  projected_matrix <- eds$project(Z)
+  
+  expect_false(is.null(eds$components), "Eigendigits object is not fitted.")
+  
+  Z <- as.matrix(Z) # fixing it as a matrix
+  
+  expect_true(isTRUE(all.equal(projected_matrix, Z, tolerance = 1e-4)), 
+              "The Projected matrix does not closely match the original input when using all principal components.")
+})
+
+# Test E - Test if the explained variance ratio increases with more principal components
+test_that("Explained variance ratio increases with more principal components", {
+  
+  # Define a list of increasing numbers of principal components to test
+  n_pcs_list <- c(5,10,20,50)
+  explained_variance_ratios <- numeric(length(n_pcs_list))
+  
+  # Loop through each value in n_pcs_list
+  for (i in seq_along(n_pcs_list)) {
+    
+    # Create a dataset and fits the Eigendigits object
+    example <- create_example(n_pcs_list[i])
+    
+    ## Extract the explained variance ratio from the fitted Eigendigits object
+    explained_variance_ratios[i] <- example$eds$explained_variance_ratio
+  }
+  expect_true(all(diff(explained_variance_ratios) > 0), 
+              "Explained variance ratio does not increase with more principal components")
+})
+# tests go here
+
+```
+
+## Part C
+
+### C(i)
+
+```{r}
+
+# Load the MNIST dataset
+mnist <- read.csv("mnist.csv")
+Y <- mnist$digit  # Labels
+X <- mnist[,-1]
+
+# Create Eigendigits object with 10 principal components
+eigendigits <- EigendigitsR6$new(npcs = 10)
+eigendigits$fit(X)
+
+# Print the Eigendigits object
+eigendigits$print()
+
+# Visualize the first 10 principal components
+visualise(t(eigendigits$components))
+
+```
+
+### Part C(ii)
+
+```{r}
+# your code goes here
+
+# Load the MNIST dataset
+mnist <- read.csv("mnist.csv")
+Y <- mnist$digit  # Labels
+X <- mnist[,-1]
+
+# Split into training and test sets
+X_train <- X[1:(nrow(X) - 9), ]
+X_test <- X[(nrow(X) - 8):nrow(X), ]
+Y_train <- Y[1:(length(Y) - 9)]
+Y_test <- Y[(length(Y) - 8):length(Y)]
+
+
+# Function to test different numbers of principal components
+classify_with_pcs <- function(n_pcs, X_train, Y_train, X_test, Y_test) {
+  # Create and fit the Eigendigits object
+  eigendigits <- EigendigitsR6$new(npcs = n_pcs)  # Assuming EigendigitsR6 is defined
+  eigendigits$fit(X_train)
+
+  # Classify each test image
+  predictions <- sapply(1:nrow(X_test), function(i) {
+    eigendigits$classify(X_train, Y_train, X_test[i, , drop = FALSE])
+  })
+  
+  # Check accuracy
+  correct_count <- sum(predictions == Y_test)
+  
+  # Visualize true labels
+  cat("Number of Principal Components:", n_pcs, "\n")
+  cat("Accuracy:", correct_count, "/", length(Y_test), "\n")
+  
+  # Visualize original test images with true labels
+  cat("Original test images with true labels:\n")
+  visualise(X_test, Y_test)
+  
+  # Visualize projections with predicted labels
+  projections <- eigendigits$project(X_test)
+  cat("Projected test images with predicted labels:\n")
+  visualise(projections, predictions)
+  
+  return(correct_count == length(Y_test))  # Return TRUE if all are correctly classified
+}
+
+# Iterate over different numbers of principal components
+for (n_pcs in 1:ncol(X_train)) {
+  if (classify_with_pcs(n_pcs, X_train, Y_train, X_test, Y_test)) {
+    cat("All test images correctly classified with", n_pcs, "principal components.\n")
+    break  # Stop after the first successful classification
+  }
+}
+
+
+
+
+```
